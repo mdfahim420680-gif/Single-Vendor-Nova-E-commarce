@@ -276,6 +276,20 @@ export function RegisterPage() {
             }),
           );
         } else {
+          const verifiedSession = await dispatch(fetchCurrentUser());
+          if (
+            !fetchCurrentUser.fulfilled.match(verifiedSession) ||
+            !verifiedSession.payload.user
+          ) {
+            setBannerError({
+              message: 'Account was created, but the authenticated session could not be verified. Please sign in.',
+            });
+            return;
+          }
+          setName('');
+          setEmail('');
+          setPassword('');
+          setConfirmPassword('');
           dispatch(
             showToast({
               variant: 'success',
