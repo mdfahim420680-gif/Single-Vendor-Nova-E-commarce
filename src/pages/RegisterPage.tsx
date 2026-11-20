@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import {
   AlertCircle,
@@ -113,6 +113,7 @@ export function RegisterPage() {
   const popupTimerRef = useRef<number | null>(null);
   const oauthPopupRef = useRef<Window | null>(null);
   const oauthCompletionRef = useRef(false);
+  const oauthStartedAuthenticatedRef = useRef(false);
 
   const clearPopupTimer = () => {
     if (popupTimerRef.current !== null) {
@@ -120,6 +121,38 @@ export function RegisterPage() {
       popupTimerRef.current = null;
     }
   };
+
+  const verifyGoogleOAuthAndNavigate = useCallback(async (showFailure = true) => {
+    if (oauthCompletionRef.current) return false;
+    oauthCompletionRef.current = true;
+    clearPopupTimer();
+    setOauthBusy(null);
+
+    for (let attempt = 0; attempt < 6; attempt += 1) {
+      const meResult = await dispatch(fetchCurrentUser());
+      if (fetchCurrentUser.fulfilled.match(meResult) && meResult.payload.user) {
+        oauthPopupRef.current?.close();
+        oauthPopupRef.current = null;
+        dispatch(
+          showToast({
+            variant: 'success',
+            message: `Welcome to ${branding.effectiveBrandName}, ${meResult.payload.user.name}!`,
+          }),
+        );
+        navigate('/', { replace: true });
+        return true;
+      }
+      if (attempt < 5) {
+        await new Promise((resolve) => window.setTimeout(resolve, 250));
+      }
+    }
+
+    oauthCompletionRef.current = false;
+    if (showFailure) {
+      setBannerError({ message: 'Google sign-in completed, but the authenticated session could not be verified.' });
+    }
+    return false;
+  }, [branding.effectiveBrandName, dispatch, navigate]);
 
   useEffect(() => {
     return () => clearPopupTimer();
@@ -174,32 +207,18 @@ export function RegisterPage() {
       if (oauthPopupRef.current && event.source !== oauthPopupRef.current) return;
       if (!event.data || typeof event.data !== 'object') return;
       if (event.data.type === 'OAUTH_AUTH_SUCCESS') {
-        if (oauthCompletionRef.current) return;
-        oauthCompletionRef.current = true;
-        clearPopupTimer();
-        setOauthBusy(null);
-        let meResult = await dispatch(fetchCurrentUser());
-        if (
-          !fetchCurrentUser.fulfilled.match(meResult) ||
-          !meResult.payload.user
-        ) {
-          await new Promise((resolve) => window.setTimeout(resolve, 200));
-          meResult = await dispatch(fetchCurrentUser());
+        if (event.data.provider === 'google') {
+          await verifyGoogleOAuthAndNavigate(true);
+        } else {
+          clearPopupTimer();
+          setOauthBusy(null);
+          const meResult = await dispatch(fetchCurrentUser());
+          if (!fetchCurrentUser.fulfilled.match(meResult) || !meResult.payload.user) {
+            setBannerError({ message: 'Social sign-in completed, but the authenticated session could not be verified.' });
+            return;
+          }
+          navigate(redirectTarget, { replace: true });
         }
-        if (!fetchCurrentUser.fulfilled.match(meResult) || !meResult.payload.user) {
-          oauthCompletionRef.current = false;
-          setBannerError({ message: 'Google sign-in completed, but the authenticated session could not be verified.' });
-          return;
-        }
-        oauthPopupRef.current?.close();
-        oauthPopupRef.current = null;
-        dispatch(
-          showToast({
-            variant: 'success',
-            message: `Welcome to ${branding.effectiveBrandName}, ${meResult.payload.user.name}!`,
-          }),
-        );
-        navigate(event.data.provider === 'google' ? '/' : redirectTarget, { replace: true });
       } else if (event.data.type === 'OAUTH_EMAIL_REQUIRED' && event.data.challengeToken) {
         clearPopupTimer();
         setOauthBusy(null);
@@ -222,7 +241,7 @@ export function RegisterPage() {
     };
     window.addEventListener('message', onOAuthMessage);
     return () => window.removeEventListener('message', onOAuthMessage);
-  }, [dispatch, navigate, redirectTarget, branding.effectiveBrandName]);
+  }, [dispatch, navigate, redirectTarget, verifyGoogleOAuthAndNavigate]);
 
   const passwordRules = useMemo(() => evaluatePasswordRules(password), [password]);
 
@@ -373,6 +392,8 @@ export function RegisterPage() {
     clearPopupTimer();
     setOauthBusy(provider);
     setBannerError(null);
+    oauthCompletionRef.current = false;
+    oauthStartedAuthenticatedRef.current = Boolean(user);
     try {
       const res = await apiRequest<{ ok: true; url: string }>(
         `/api/auth/oauth/${provider}/url?returnTo=${encodeURIComponent(redirectTarget)}&parentOrigin=${encodeURIComponent(window.location.origin)}`,
@@ -392,6 +413,11 @@ export function RegisterPage() {
           if (popup.closed) {
             clearPopupTimer();
             setOauthBusy(null);
+            if (provider === 'google' && !oauthStartedAuthenticatedRef.current) {
+              void verifyGoogleOAuthAndNavigate(false);
+            } else {
+              oauthPopupRef.current = null;
+            }
           }
         } catch {
           clearPopupTimer();
