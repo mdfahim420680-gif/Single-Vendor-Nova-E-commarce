@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
 import { Link } from 'react-router-dom';
 import {
   ArrowRight,
@@ -19,7 +19,7 @@ import {
   Wallet,
 } from 'lucide-react';
 import { useAppDispatch, useAppSelector } from '../../app/hooks';
-import { logoutUser, openAuthModal, setUserProfile } from '../../features/auth/authSlice';
+import { fetchCurrentUser, logoutUser, openAuthModal, setUserProfile } from '../../features/auth/authSlice';
 import { showToast } from '../../features/notifications/toastSlice';
 import { selectWishlistCount } from '../../features/wishlist/wishlistSlice';
 import { AccountLayout, type AccountNavKey } from '../../components/account/AccountLayout';
@@ -643,6 +643,7 @@ export function AccountSecurityPage() {
   const [oauthStatus, setOauthStatus] = useState({ google: false, facebook: false });
   const [busyProvider, setBusyProvider] = useState<'google' | 'facebook' | null>(null);
   const [sessionsBusy, setSessionsBusy] = useState(false);
+  const oauthPopupRef = useRef<Window | null>(null);
 
   const loadSecurityData = useCallback(async () => {
     if (!user) return;
@@ -692,17 +693,22 @@ export function AccountSecurityPage() {
   useEffect(() => {
     const onMessage = (event: MessageEvent) => {
       if (event.origin !== window.location.origin) return;
+      if (oauthPopupRef.current && event.source !== oauthPopupRef.current) return;
       if (!event.data || typeof event.data !== 'object') return;
-      if (event.data.type === 'OAUTH_LINK_SUCCESS' && event.data.user) {
+      if (event.data.type === 'OAUTH_LINK_SUCCESS') {
         setBusyProvider(null);
-        dispatch(setUserProfile(event.data.user as UserProfile));
-        dispatch(
-          showToast({
-            variant: 'success',
-            message: `${event.data.provider === 'google' ? 'Google' : 'Facebook'} connected to your account.`,
-          }),
-        );
-        loadSecurityData();
+        dispatch(fetchCurrentUser()).then((result) => {
+          if (fetchCurrentUser.fulfilled.match(result) && result.payload.user) {
+            dispatch(setUserProfile(result.payload.user));
+            dispatch(
+              showToast({
+                variant: 'success',
+                message: `${event.data.provider === 'google' ? 'Google' : 'Facebook'} connected to your account.`,
+              }),
+            );
+            loadSecurityData();
+          }
+        });
       } else if (event.data.type === 'OAUTH_AUTH_ERROR') {
         setBusyProvider(null);
         dispatch(
@@ -783,6 +789,7 @@ export function AccountSecurityPage() {
         `/api/auth/oauth/${provider}/url?intent=link&returnTo=${encodeURIComponent('/account/security')}`,
       );
       const popup = window.open(res.url, `novara_link_${provider}`, 'width=520,height=640,noopener=false');
+      oauthPopupRef.current = popup;
       if (!popup) {
         window.location.href = `/api/auth/oauth/${provider}?intent=link&mode=redirect&returnTo=${encodeURIComponent('/account/security')}`;
       }

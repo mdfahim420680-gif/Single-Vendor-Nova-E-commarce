@@ -90,15 +90,13 @@ function buildOAuthCallbackHtml(
     | {
         type: 'OAUTH_AUTH_SUCCESS';
         provider: OAuthProvider;
-        user: ReturnType<typeof serializeUser>;
-        token: string;
+        targetOrigin: string;
         returnTo?: string;
       }
     | {
         type: 'OAUTH_LINK_SUCCESS';
         provider: OAuthProvider;
-        user: ReturnType<typeof serializeUser>;
-        token: string;
+        targetOrigin: string;
         returnTo?: string;
       }
     | {
@@ -107,6 +105,7 @@ function buildOAuthCallbackHtml(
         challengeToken: string;
         name: string;
         picture?: string;
+        targetOrigin: string;
         returnTo?: string;
       }
     | {
@@ -116,30 +115,24 @@ function buildOAuthCallbackHtml(
         emailHint: string;
         existingHasPassword: boolean;
         existingInitialProvider: string;
+        targetOrigin: string;
         returnTo?: string;
       }
     | {
         type: 'OAUTH_AUTH_ERROR';
         provider: OAuthProvider;
         error: string;
+        targetOrigin?: string;
       },
 ): string {
   const serialized = JSON.stringify(payload).replace(/</g, '\\u003c');
+  const targetOrigin = 'targetOrigin' in payload ? payload.targetOrigin : '';
   const titleText =
     payload.type === 'OAUTH_AUTH_SUCCESS' || payload.type === 'OAUTH_LINK_SUCCESS'
       ? 'Authentication successful'
       : payload.type === 'OAUTH_EMAIL_REQUIRED' || payload.type === 'OAUTH_LINK_REQUIRED'
         ? 'Additional step required'
         : 'Authentication cancelled';
-
-  const fallbackPath =
-    payload.type === 'OAUTH_AUTH_SUCCESS' || payload.type === 'OAUTH_LINK_SUCCESS'
-      ? sanitizeAuthRedirectPath(payload.returnTo, payload.type === 'OAUTH_LINK_SUCCESS' ? '/account/security' : '/')
-      : payload.type === 'OAUTH_EMAIL_REQUIRED'
-        ? `/login?oauthChallenge=${encodeURIComponent(payload.challengeToken)}&oauthAction=email_required`
-        : payload.type === 'OAUTH_LINK_REQUIRED'
-          ? `/login?pendingLinkToken=${encodeURIComponent(payload.pendingLinkToken)}&oauthAction=link_required&provider=${payload.provider}&emailHint=${encodeURIComponent(payload.emailHint)}`
-          : `/login?authError=${encodeURIComponent(payload.error || 'oauth_failed')}`;
 
   return `<!doctype html>
 <html lang="en">
@@ -152,11 +145,12 @@ function buildOAuthCallbackHtml(
     <script>
       (function () {
         var msg = ${serialized};
-        if (window.opener && !window.opener.closed) {
-          window.opener.postMessage(msg, '*');
+        if (window.opener && !window.opener.closed && ${JSON.stringify(Boolean(targetOrigin))}) {
+          window.opener.postMessage(msg, ${JSON.stringify(targetOrigin)});
           window.close();
         } else {
-          window.location.href = ${JSON.stringify(fallbackPath)};
+          document.body.innerHTML = '<p style="font-size:13px;color:#475569;">Authentication completed. This window can now be closed.</p>';
+          window.close();
         }
       })();
     </script>
@@ -741,7 +735,7 @@ export async function googleOAuthCallbackController(req: AuthenticatedRequest, r
       });
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Invalid or expired Google OAuth security state.';
-      res.status(400).send(buildOAuthCallbackHtml({ type: 'OAUTH_AUTH_ERROR', provider: 'google', error: msg }));
+      res.status(400).send(buildOAuthCallbackHtml({ type: 'OAUTH_AUTH_ERROR', provider: 'google', error: msg, targetOrigin: resolveCanonicalOrigin(req) }));
       return;
     }
 
@@ -750,7 +744,7 @@ export async function googleOAuthCallbackController(req: AuthenticatedRequest, r
     if (providerError || !code) {
       const errMsg = providerError === 'access_denied' ? 'Google sign-in was cancelled.' : 'Google authorization failed.';
       if (verifiedState.mode === 'popup') {
-        res.send(buildOAuthCallbackHtml({ type: 'OAUTH_AUTH_ERROR', provider: 'google', error: errMsg }));
+        res.send(buildOAuthCallbackHtml({ type: 'OAUTH_AUTH_ERROR', provider: 'google', error: errMsg, targetOrigin: verifiedState.origin }));
       } else {
         res.redirect(`${verifiedState.origin}/login?authError=${encodeURIComponent(errMsg)}`);
       }
@@ -769,7 +763,7 @@ export async function googleOAuthCallbackController(req: AuthenticatedRequest, r
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : 'Google token verification failed.';
       if (verifiedState.mode === 'popup') {
-        res.send(buildOAuthCallbackHtml({ type: 'OAUTH_AUTH_ERROR', provider: 'google', error: errMsg }));
+        res.send(buildOAuthCallbackHtml({ type: 'OAUTH_AUTH_ERROR', provider: 'google', error: errMsg, targetOrigin: verifiedState.origin }));
       } else {
         res.redirect(`${verifiedState.origin}/login?authError=${encodeURIComponent(errMsg)}`);
       }
@@ -800,6 +794,7 @@ export async function googleOAuthCallbackController(req: AuthenticatedRequest, r
         emailHint: resolution.emailHint,
         existingHasPassword: resolution.existingHasPassword,
         existingInitialProvider: resolution.existingInitialProvider,
+        targetOrigin: verifiedState.origin,
         returnTo: verifiedState.returnTo,
       };
       if (verifiedState.mode === 'popup') {
@@ -819,8 +814,7 @@ export async function googleOAuthCallbackController(req: AuthenticatedRequest, r
         buildOAuthCallbackHtml({
           type: eventType,
           provider: 'google',
-          user: resolution.user,
-          token: resolution.token,
+          targetOrigin: verifiedState.origin,
           returnTo: verifiedState.returnTo,
         }),
       );
@@ -886,7 +880,7 @@ export async function facebookOAuthCallbackController(req: AuthenticatedRequest,
       });
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Invalid or expired Facebook OAuth security state.';
-      res.status(400).send(buildOAuthCallbackHtml({ type: 'OAUTH_AUTH_ERROR', provider: 'facebook', error: msg }));
+      res.status(400).send(buildOAuthCallbackHtml({ type: 'OAUTH_AUTH_ERROR', provider: 'facebook', error: msg, targetOrigin: resolveCanonicalOrigin(req) }));
       return;
     }
 
@@ -895,7 +889,7 @@ export async function facebookOAuthCallbackController(req: AuthenticatedRequest,
     if (providerError || !code) {
       const errMsg = providerError === 'access_denied' ? 'Facebook sign-in was cancelled.' : 'Facebook authorization failed.';
       if (verifiedState.mode === 'popup') {
-        res.send(buildOAuthCallbackHtml({ type: 'OAUTH_AUTH_ERROR', provider: 'facebook', error: errMsg }));
+        res.send(buildOAuthCallbackHtml({ type: 'OAUTH_AUTH_ERROR', provider: 'facebook', error: errMsg, targetOrigin: verifiedState.origin }));
       } else {
         res.redirect(`${verifiedState.origin}/login?authError=${encodeURIComponent(errMsg)}`);
       }
@@ -912,7 +906,7 @@ export async function facebookOAuthCallbackController(req: AuthenticatedRequest,
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : 'Facebook token verification failed.';
       if (verifiedState.mode === 'popup') {
-        res.send(buildOAuthCallbackHtml({ type: 'OAUTH_AUTH_ERROR', provider: 'facebook', error: errMsg }));
+        res.send(buildOAuthCallbackHtml({ type: 'OAUTH_AUTH_ERROR', provider: 'facebook', error: errMsg, targetOrigin: verifiedState.origin }));
       } else {
         res.redirect(`${verifiedState.origin}/login?authError=${encodeURIComponent(errMsg)}`);
       }
@@ -945,8 +939,7 @@ export async function facebookOAuthCallbackController(req: AuthenticatedRequest,
             buildOAuthCallbackHtml({
               type: resolution.status === 'linked' ? 'OAUTH_LINK_SUCCESS' : 'OAUTH_AUTH_SUCCESS',
               provider: 'facebook',
-              user: resolution.user,
-              token: resolution.token,
+              targetOrigin: verifiedState.origin,
               returnTo: verifiedState.returnTo,
             }),
           );
@@ -972,6 +965,7 @@ export async function facebookOAuthCallbackController(req: AuthenticatedRequest,
             challengeToken,
             name: profile.name,
             picture: profile.picture,
+            targetOrigin: verifiedState.origin,
             returnTo: verifiedState.returnTo,
           }),
         );
@@ -1007,6 +1001,7 @@ export async function facebookOAuthCallbackController(req: AuthenticatedRequest,
         emailHint: resolution.emailHint,
         existingHasPassword: resolution.existingHasPassword,
         existingInitialProvider: resolution.existingInitialProvider,
+        targetOrigin: verifiedState.origin,
         returnTo: verifiedState.returnTo,
       };
       if (verifiedState.mode === 'popup') {
@@ -1026,8 +1021,7 @@ export async function facebookOAuthCallbackController(req: AuthenticatedRequest,
         buildOAuthCallbackHtml({
           type: eventType,
           provider: 'facebook',
-          user: resolution.user,
-          token: resolution.token,
+          targetOrigin: verifiedState.origin,
           returnTo: verifiedState.returnTo,
         }),
       );

@@ -17,10 +17,9 @@ import {
   Zap,
 } from 'lucide-react';
 import { useAppDispatch, useAppSelector } from '../app/hooks';
-import { completeOAuthSession, registerUser } from '../features/auth/authSlice';
+import { fetchCurrentUser, registerUser } from '../features/auth/authSlice';
 import { showToast } from '../features/notifications/toastSlice';
 import { ApiError, apiRequest } from '../services/api';
-import type { UserProfile } from '../types/commerce';
 import {
   DEFAULT_AUTH_SETTINGS,
   evaluatePasswordRules,
@@ -112,6 +111,7 @@ export function RegisterPage() {
 
   const submittingRef = useRef(false);
   const popupTimerRef = useRef<number | null>(null);
+  const oauthPopupRef = useRef<Window | null>(null);
 
   const clearPopupTimer = () => {
     if (popupTimerRef.current !== null) {
@@ -170,20 +170,20 @@ export function RegisterPage() {
   useEffect(() => {
     const onOAuthMessage = async (event: MessageEvent) => {
       if (event.origin !== window.location.origin) return;
+      if (oauthPopupRef.current && event.source !== oauthPopupRef.current) return;
       if (!event.data || typeof event.data !== 'object') return;
-      if (event.data.type === 'OAUTH_AUTH_SUCCESS' && event.data.user) {
+      if (event.data.type === 'OAUTH_AUTH_SUCCESS') {
         clearPopupTimer();
         setOauthBusy(null);
-        await dispatch(
-          completeOAuthSession({
-            user: event.data.user as UserProfile,
-            token: typeof event.data.token === 'string' ? event.data.token : undefined,
-          }),
-        );
+        const meResult = await dispatch(fetchCurrentUser());
+        if (!fetchCurrentUser.fulfilled.match(meResult) || !meResult.payload.user) {
+          setBannerError({ message: 'Google sign-in completed, but the authenticated session could not be verified.' });
+          return;
+        }
         dispatch(
           showToast({
             variant: 'success',
-            message: `Welcome to ${branding.effectiveBrandName}, ${(event.data.user as UserProfile).name}!`,
+            message: `Welcome to ${branding.effectiveBrandName}, ${meResult.payload.user.name}!`,
           }),
         );
         navigate(redirectTarget);
@@ -355,6 +355,7 @@ export function RegisterPage() {
         `novara_${provider}_oauth`,
         'width=520,height=640,noopener=false,noreferrer=false',
       );
+      oauthPopupRef.current = popup;
       if (!popup) {
         window.location.href = `/api/auth/oauth/${provider}?mode=redirect&returnTo=${encodeURIComponent(redirectTarget)}`;
         return;

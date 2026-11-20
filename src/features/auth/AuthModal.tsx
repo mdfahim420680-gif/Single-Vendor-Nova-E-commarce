@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { ArrowRight, Eye, EyeOff, Lock, Mail } from 'lucide-react';
 import { Modal } from '../../components/ui/Modal';
 import { useAppDispatch, useAppSelector } from '../../app/hooks';
-import { closeAuthModal, completeOAuthSession, loginUser, setAuthModalTab } from './authSlice';
+import { closeAuthModal, fetchCurrentUser, loginUser, setAuthModalTab } from './authSlice';
 import { showToast } from '../notifications/toastSlice';
 import { ApiError, apiRequest } from '../../services/api';
 import {
@@ -13,7 +13,6 @@ import {
   validateEmailFirstStep,
   type MergedAuthBranding,
 } from '../../lib/authValidation';
-import type { UserProfile } from '../../types/commerce';
 
 export function AuthModal() {
   const dispatch = useAppDispatch();
@@ -44,6 +43,7 @@ export function AuthModal() {
   const passwordInputRef = useRef<HTMLInputElement | null>(null);
   const identifyLockRef = useRef(false);
   const popupTimerRef = useRef<number | null>(null);
+  const oauthPopupRef = useRef<Window | null>(null);
 
   const clearPopupTimer = () => {
     if (popupTimerRef.current !== null) {
@@ -108,17 +108,17 @@ export function AuthModal() {
     if (!modalOpen) return;
     const onMessage = async (event: MessageEvent) => {
       if (event.origin !== window.location.origin) return;
+      if (oauthPopupRef.current && event.source !== oauthPopupRef.current) return;
       if (!event.data || typeof event.data !== 'object') return;
-      if (event.data.type === 'OAUTH_AUTH_SUCCESS' && event.data.user) {
+      if (event.data.type === 'OAUTH_AUTH_SUCCESS') {
         clearPopupTimer();
         setOauthBusy(null);
-        await dispatch(
-          completeOAuthSession({
-            user: event.data.user as UserProfile,
-            token: typeof event.data.token === 'string' ? event.data.token : undefined,
-          }),
-        );
-        dispatch(showToast({ variant: 'success', message: `Signed in as ${event.data.user.name}.` }));
+        const meResult = await dispatch(fetchCurrentUser());
+        if (!fetchCurrentUser.fulfilled.match(meResult) || !meResult.payload.user) {
+          setErrorMsg('Google sign-in completed, but the authenticated session could not be verified.');
+          return;
+        }
+        dispatch(showToast({ variant: 'success', message: `Signed in as ${meResult.payload.user.name}.` }));
         if (returnUrl) navigate(returnUrl);
       } else if (event.data.type === 'OAUTH_EMAIL_REQUIRED' && event.data.challengeToken) {
         clearPopupTimer();
@@ -283,6 +283,7 @@ export function AuthModal() {
         `novara_${provider}_oauth`,
         'width=520,height=640,noopener=false,noreferrer=false',
       );
+      oauthPopupRef.current = popup;
       if (!popup) {
         window.location.href = `/api/auth/oauth/${provider}?mode=redirect&returnTo=${encodeURIComponent(target)}`;
         return;

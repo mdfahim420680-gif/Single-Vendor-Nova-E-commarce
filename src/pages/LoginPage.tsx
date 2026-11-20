@@ -18,7 +18,7 @@ import {
   Users,
 } from 'lucide-react';
 import { useAppDispatch, useAppSelector } from '../app/hooks';
-import { completeOAuthSession, loginUser } from '../features/auth/authSlice';
+import { completeOAuthSession, fetchCurrentUser, loginUser } from '../features/auth/authSlice';
 import { showToast } from '../features/notifications/toastSlice';
 import { ApiError, apiRequest } from '../services/api';
 import type { UserProfile } from '../types/commerce';
@@ -112,6 +112,7 @@ export function LoginPage({ initialMode = 'login' }: { initialMode?: 'login' | '
   const passwordInputRef = useRef<HTMLInputElement | null>(null);
   const identifyLockRef = useRef(false);
   const popupTimerRef = useRef<number | null>(null);
+  const oauthPopupRef = useRef<Window | null>(null);
 
   const clearPopupTimer = () => {
     if (popupTimerRef.current !== null) {
@@ -229,20 +230,20 @@ export function LoginPage({ initialMode = 'login' }: { initialMode?: 'login' | '
   useEffect(() => {
     const onOAuthMessage = async (event: MessageEvent) => {
       if (event.origin !== window.location.origin) return;
+      if (oauthPopupRef.current && event.source !== oauthPopupRef.current) return;
       if (!event.data || typeof event.data !== 'object') return;
-      if (event.data.type === 'OAUTH_AUTH_SUCCESS' && event.data.user) {
+      if (event.data.type === 'OAUTH_AUTH_SUCCESS') {
         clearPopupTimer();
         setOauthBusy(null);
-        await dispatch(
-          completeOAuthSession({
-            user: event.data.user as UserProfile,
-            token: typeof event.data.token === 'string' ? event.data.token : undefined,
-          }),
-        );
+        const meResult = await dispatch(fetchCurrentUser());
+        if (!fetchCurrentUser.fulfilled.match(meResult) || !meResult.payload.user) {
+          setErrorMsg('Google sign-in completed, but the authenticated session could not be verified.');
+          return;
+        }
         dispatch(
           showToast({
             variant: 'success',
-            message: `Welcome back, ${(event.data.user as UserProfile).name}!`,
+            message: `Welcome back, ${meResult.payload.user.name}!`,
           }),
         );
         navigate(redirectTarget);
@@ -514,6 +515,7 @@ export function LoginPage({ initialMode = 'login' }: { initialMode?: 'login' | '
         `novara_${provider}_oauth`,
         'width=520,height=640,noopener=false,noreferrer=false',
       );
+      oauthPopupRef.current = popup;
       if (!popup) {
         window.location.href = `/api/auth/oauth/${provider}?mode=redirect&returnTo=${encodeURIComponent(redirectTarget)}`;
         return;
