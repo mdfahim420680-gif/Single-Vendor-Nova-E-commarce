@@ -375,7 +375,7 @@ export function RegisterPage() {
     setBannerError(null);
     try {
       const res = await apiRequest<{ ok: true; url: string }>(
-        `/api/auth/oauth/${provider}/url?returnTo=${encodeURIComponent(redirectTarget)}`,
+        `/api/auth/oauth/${provider}/url?returnTo=${encodeURIComponent(redirectTarget)}&parentOrigin=${encodeURIComponent(window.location.origin)}`,
       );
       const popup = window.open(
         res.url,

@@ -55,6 +55,7 @@ import {
   type OAuthIntent,
   type OAuthMode,
   type OAuthProvider,
+  isAllowedRuntimeOrigin,
 } from './oauth.service';
 
 const OAUTH_STATE_COOKIE = 'novara_oauth_state';
@@ -649,7 +650,16 @@ function initProviderAuthorization(
 
   const pkce = generatePkcePair();
   const oidcNonce = crypto.randomBytes(20).toString('hex');
-  const origin = resolveCanonicalOrigin(req);
+  const requestedParentOrigin =
+    typeof req.query.parentOrigin === 'string' ? req.query.parentOrigin : '';
+  let origin = resolveCanonicalOrigin(req);
+  if (requestedParentOrigin && isAllowedRuntimeOrigin(requestedParentOrigin)) {
+    try {
+      origin = new URL(requestedParentOrigin).origin;
+    } catch {
+      origin = resolveCanonicalOrigin(req);
+    }
+  }
   const redirectUri = resolveOAuthCallbackUrl(provider, req);
   const returnTo = typeof req.query.returnTo === 'string' ? req.query.returnTo : '/';
 

@@ -149,7 +149,7 @@ export function generatePkcePair(): PkcePair {
   };
 }
 
-function isAllowedRuntimeOrigin(candidate: string): boolean {
+export function isAllowedRuntimeOrigin(candidate: string): boolean {
   try {
     const parsed = new URL(candidate);
     if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') return false;
