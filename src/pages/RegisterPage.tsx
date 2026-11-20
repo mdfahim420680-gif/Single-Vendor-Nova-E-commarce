@@ -73,7 +73,7 @@ export function RegisterPage() {
   const { user, loading } = useAppSelector((s) => s.auth);
 
   const redirectParam = searchParams.get('redirect') || (location.state as { from?: string } | null)?.from || '';
-  const redirectTarget = sanitizeAuthRedirectPath(redirectParam, '/account');
+  const redirectTarget = sanitizeAuthRedirectPath(redirectParam, '/');
   const loginLink = redirectParam
     ? `/login?redirect=${encodeURIComponent(redirectTarget)}`
     : '/login';
@@ -169,6 +169,7 @@ export function RegisterPage() {
 
   useEffect(() => {
     const onOAuthMessage = async (event: MessageEvent) => {
+      if (event.origin !== window.location.origin) return;
       if (!event.data || typeof event.data !== 'object') return;
       if (event.data.type === 'OAUTH_AUTH_SUCCESS' && event.data.user) {
         clearPopupTimer();

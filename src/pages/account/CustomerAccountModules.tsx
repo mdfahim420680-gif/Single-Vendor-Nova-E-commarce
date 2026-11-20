@@ -691,6 +691,7 @@ export function AccountSecurityPage() {
 
   useEffect(() => {
     const onMessage = (event: MessageEvent) => {
+      if (event.origin !== window.location.origin) return;
       if (!event.data || typeof event.data !== 'object') return;
       if (event.data.type === 'OAUTH_LINK_SUCCESS' && event.data.user) {
         setBusyProvider(null);

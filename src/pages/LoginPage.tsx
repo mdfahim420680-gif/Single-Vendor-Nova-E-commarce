@@ -228,6 +228,7 @@ export function LoginPage({ initialMode = 'login' }: { initialMode?: 'login' | '
 
   useEffect(() => {
     const onOAuthMessage = async (event: MessageEvent) => {
+      if (event.origin !== window.location.origin) return;
       if (!event.data || typeof event.data !== 'object') return;
       if (event.data.type === 'OAUTH_AUTH_SUCCESS' && event.data.user) {
         clearPopupTimer();

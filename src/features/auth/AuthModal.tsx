@@ -107,6 +107,7 @@ export function AuthModal() {
   useEffect(() => {
     if (!modalOpen) return;
     const onMessage = async (event: MessageEvent) => {
+      if (event.origin !== window.location.origin) return;
       if (!event.data || typeof event.data !== 'object') return;
       if (event.data.type === 'OAUTH_AUTH_SUCCESS' && event.data.user) {
         clearPopupTimer();
