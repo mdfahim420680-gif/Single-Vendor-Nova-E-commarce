@@ -44,6 +44,7 @@ export function AuthModal() {
   const identifyLockRef = useRef(false);
   const popupTimerRef = useRef<number | null>(null);
   const oauthPopupRef = useRef<Window | null>(null);
+  const oauthPopupOriginRef = useRef<string | null>(null);
 
   const clearPopupTimer = () => {
     if (popupTimerRef.current !== null) {
@@ -107,7 +108,9 @@ export function AuthModal() {
   useEffect(() => {
     if (!modalOpen) return;
     const onMessage = async (event: MessageEvent) => {
-      if (event.origin !== window.location.origin) return;
+      const allowedOAuthOrigins = new Set([window.location.origin]);
+      if (oauthPopupOriginRef.current) allowedOAuthOrigins.add(oauthPopupOriginRef.current);
+      if (!allowedOAuthOrigins.has(event.origin)) return;
       if (oauthPopupRef.current && event.source !== oauthPopupRef.current) return;
       if (!event.data || typeof event.data !== 'object') return;
       if (event.data.type === 'OAUTH_AUTH_SUCCESS') {
@@ -282,6 +285,11 @@ export function AuthModal() {
       const res = await apiRequest<{ ok: true; url: string }>(
         `/api/auth/oauth/${provider}/url?returnTo=${encodeURIComponent(target)}`,
       );
+      try {
+        oauthPopupOriginRef.current = new URL(res.url).origin;
+      } catch {
+        oauthPopupOriginRef.current = null;
+      }
       const popup = window.open(
         res.url,
         `novara_${provider}_oauth`,

@@ -146,13 +146,58 @@ function buildOAuthCallbackHtml(
     <script>
       (function () {
         var msg = ${serialized};
-        if (window.opener && !window.opener.closed && ${JSON.stringify(Boolean(targetOrigin))}) {
-          window.opener.postMessage(msg, ${JSON.stringify(targetOrigin)});
-          window.close();
-        } else {
-          document.body.innerHTML = '<p style="font-size:13px;color:#475569;">Authentication completed. This window can now be closed.</p>';
-          window.close();
+        var isAuthenticatedSuccess =
+          msg.type === 'OAUTH_AUTH_SUCCESS' || msg.type === 'OAUTH_LINK_SUCCESS';
+
+        var verifySessionAndClose = function (eventPayload) {
+          if (window.opener && !window.opener.closed && ${JSON.stringify(Boolean(targetOrigin))}) {
+            window.opener.postMessage(eventPayload, ${JSON.stringify(targetOrigin)});
+            window.close();
+          } else {
+            document.body.innerHTML = '<p style="font-size:13px;color:#475569;">Authentication completed. This window can now be closed.</p>';
+            window.close();
+          }
+        };
+
+        if (isAuthenticatedSuccess) {
+          var attempts = 0;
+          var verify = function () {
+            attempts += 1;
+            fetch('/api/auth/me', { credentials: 'include', cache: 'no-store' })
+              .then(function (response) {
+                if (response.ok) {
+                  verifySessionAndClose(msg);
+                  return;
+                }
+                if (attempts < 4) {
+                  window.setTimeout(verify, 150);
+                  return;
+                }
+                verifySessionAndClose({
+                  type: 'OAUTH_AUTH_ERROR',
+                  provider: msg.provider,
+                  error: 'Google sign-in completed, but the authenticated session could not be verified.',
+                  targetOrigin: msg.targetOrigin
+                });
+              })
+              .catch(function () {
+                if (attempts < 4) {
+                  window.setTimeout(verify, 150);
+                  return;
+                }
+                verifySessionAndClose({
+                  type: 'OAUTH_AUTH_ERROR',
+                  provider: msg.provider,
+                  error: 'Google sign-in completed, but the authenticated session could not be verified.',
+                  targetOrigin: msg.targetOrigin
+                });
+              });
+          };
+          verify();
+          return;
         }
+
+        verifySessionAndClose(msg);
       })();
     </script>
   </body>
