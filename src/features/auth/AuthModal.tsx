@@ -119,7 +119,11 @@ export function AuthModal() {
           return;
         }
         dispatch(showToast({ variant: 'success', message: `Signed in as ${meResult.payload.user.name}.` }));
-        if (returnUrl) navigate(returnUrl);
+        if (event.data.provider === 'google') {
+          navigate('/', { replace: true });
+        } else if (returnUrl) {
+          navigate(returnUrl);
+        }
       } else if (event.data.type === 'OAUTH_EMAIL_REQUIRED' && event.data.challengeToken) {
         clearPopupTimer();
         setOauthBusy(null);

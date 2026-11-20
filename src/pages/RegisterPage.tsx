@@ -112,6 +112,7 @@ export function RegisterPage() {
   const submittingRef = useRef(false);
   const popupTimerRef = useRef<number | null>(null);
   const oauthPopupRef = useRef<Window | null>(null);
+  const oauthCompletionRef = useRef(false);
 
   const clearPopupTimer = () => {
     if (popupTimerRef.current !== null) {
@@ -173,20 +174,32 @@ export function RegisterPage() {
       if (oauthPopupRef.current && event.source !== oauthPopupRef.current) return;
       if (!event.data || typeof event.data !== 'object') return;
       if (event.data.type === 'OAUTH_AUTH_SUCCESS') {
+        if (oauthCompletionRef.current) return;
+        oauthCompletionRef.current = true;
         clearPopupTimer();
         setOauthBusy(null);
-        const meResult = await dispatch(fetchCurrentUser());
+        let meResult = await dispatch(fetchCurrentUser());
+        if (
+          !fetchCurrentUser.fulfilled.match(meResult) ||
+          !meResult.payload.user
+        ) {
+          await new Promise((resolve) => window.setTimeout(resolve, 200));
+          meResult = await dispatch(fetchCurrentUser());
+        }
         if (!fetchCurrentUser.fulfilled.match(meResult) || !meResult.payload.user) {
+          oauthCompletionRef.current = false;
           setBannerError({ message: 'Google sign-in completed, but the authenticated session could not be verified.' });
           return;
         }
+        oauthPopupRef.current?.close();
+        oauthPopupRef.current = null;
         dispatch(
           showToast({
             variant: 'success',
             message: `Welcome to ${branding.effectiveBrandName}, ${meResult.payload.user.name}!`,
           }),
         );
-        navigate(redirectTarget);
+        navigate(event.data.provider === 'google' ? '/' : redirectTarget, { replace: true });
       } else if (event.data.type === 'OAUTH_EMAIL_REQUIRED' && event.data.challengeToken) {
         clearPopupTimer();
         setOauthBusy(null);

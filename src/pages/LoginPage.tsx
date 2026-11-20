@@ -246,7 +246,7 @@ export function LoginPage({ initialMode = 'login' }: { initialMode?: 'login' | '
             message: `Welcome back, ${meResult.payload.user.name}!`,
           }),
         );
-        navigate(redirectTarget);
+        navigate(event.data.provider === 'google' ? '/' : redirectTarget, { replace: true });
       } else if (event.data.type === 'OAUTH_EMAIL_REQUIRED' && event.data.challengeToken) {
         clearPopupTimer();
         setOauthBusy(null);
